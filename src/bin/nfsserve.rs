@@ -1,5 +1,8 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use nfsserve::demofs::DemoFS;
+use nfsserve::mirrorfs::MirrorFS;
 use nfsserve::tcp::*;
 
 #[derive(Parser)]
@@ -10,6 +13,8 @@ struct Config {
 
     #[arg(short, long)]
     ip_address: Option<String>,
+    #[arg(short = 'P', long)]
+    path: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -17,6 +22,7 @@ impl Default for Config {
         Self {
             port: Some(11111),
             ip_address: Some("127.0.0.1".to_string()),
+            path: None,
         }
     }
 }
@@ -29,6 +35,7 @@ impl Config {
             .ip_address
             .clone()
             .unwrap_or(Config::default().ip_address.unwrap());
+
         format!("{}:{}", listener_ip, listener_port)
     }
 }
@@ -41,11 +48,21 @@ async fn main() {
         .init();
 
     let config = Config::parse();
-
-    let listener = NFSTcpListener::bind(&config.listener_address(), DemoFS::default())
-        .await
-        .unwrap();
-    listener.handle_forever().await.unwrap();
+    let listener_address = config.listener_address();
+    match config.path {
+        Some(path) => {
+            let listener = NFSTcpListener::bind(&listener_address, MirrorFS::new(path))
+                .await
+                .unwrap();
+            listener.handle_forever().await.unwrap();
+        }
+        None => {
+            let listener = NFSTcpListener::bind(&listener_address, DemoFS::default())
+                .await
+                .unwrap();
+            listener.handle_forever().await.unwrap()
+        }
+    };
 }
 // Test with
 // mount -t nfs -o nolocks,vers=3,tcp,port=12000,mountport=12000,soft 127.0.0.1:/ mnt/
